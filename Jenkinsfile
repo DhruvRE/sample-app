@@ -42,8 +42,8 @@ pipeline {
         stage('Update Deployment Manifest') {
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                usernameVariable: 'GIT_USER',
-                                                passwordVariable: 'GIT_TOKEN')]) {
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
                 script {
                     sh """
                     sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
@@ -56,20 +56,17 @@ pipeline {
 
                     git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
 
-                    # Fetch remote changes explicitly
-                    git fetch origin main
-
-                    # Rebase local commits on top of origin/main
-                    git rebase origin/main || {
+                    # Pull remote changes with rebase to avoid non-fast-forward error
+                    git pull --rebase origin main || {
                         echo "Rebase failed, aborting"
                         git rebase --abort
                         exit 1
                     }
 
-                    # Push only after successful rebase
+                    # Push after successful rebase
                     git push origin main
 
-                    # Reset remote URL to avoid storing credentials
+                    # Reset remote URL to avoid saving credentials
                     git remote set-url origin https://github.com/DhruvRE/sample-app.git
                     """
                 }
