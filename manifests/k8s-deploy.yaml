@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: sample-app
-          image: dhruvre/sample-app:REPLACE_TAG
+          image: dhruvre/sample-app:22
           ports:
             - containerPort: 8080
 ---
