@@ -37,7 +37,7 @@ pipeline {
         stage('Update Kubernetes Manifest') {
             steps {
                 script {
-                    sh "sed -i "s|image: .*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|" manifests/k8s-deploy.yaml"
+                    sh "sed -i 's|image: .*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/k8s-deploy.yaml"
                 }
             }
         }
