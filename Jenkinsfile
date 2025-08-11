@@ -44,25 +44,35 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
                                                 usernameVariable: 'GIT_USER',
                                                 passwordVariable: 'GIT_TOKEN')]) {
-                    script {
-                        sh """
-                        sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
+                script {
+                    sh """
+                    sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
-                        git config user.email "jenkins@local"
-                        git config user.name "Jenkins CI"
+                    git config user.email "jenkins@local"
+                    git config user.name "Jenkins CI"
 
-                        git add manifests/deployment.yaml
-                        git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
+                    git add manifests/deployment.yaml
+                    git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
 
-                        git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-                        
-                        git pull --rebase origin main || echo "No remote changes to rebase"
+                    git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
 
-                        git push origin main
+                    # Fetch remote changes explicitly
+                    git fetch origin main
 
-                        git remote set-url origin https://github.com/DhruvRE/sample-app.git
-                        """
+                    # Rebase local commits on top of origin/main
+                    git rebase origin/main || {
+                        echo "Rebase failed, aborting"
+                        git rebase --abort
+                        exit 1
                     }
+
+                    # Push only after successful rebase
+                    git push origin main
+
+                    # Reset remote URL to avoid storing credentials
+                    git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                    """
+                }
                 }
             }
         }
