@@ -2,10 +2,10 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "dhruvre/sample-app"
+        DOCKER_IMAGE       = "dhruvre/sample-app"
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-        GIT_CREDENTIALS = "github-token"
-        GIT_REPO = "https://github.com/DhruvRE/sample-app.git"
+        GIT_CREDENTIALS    = "github-token"   // must be "Username with password" (username = your GH user, password = PAT)
+        GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
     }
     
     stages {
@@ -45,13 +45,27 @@ pipeline {
         stage('Commit & Push Changes') {
             steps {
                 script {
-                    sh '''
-                        git config user.email "jenkins@local"
-                        git config user.name "Jenkins CI"
-                        git add k8s-deploy.yaml
-                        git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
-                        git push origin main
-                    '''
+                    // Use Jenkins stored Git credentials to authenticate the shell git push
+                    withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                                                      usernameVariable: 'GIT_USER',
+                                                      passwordVariable: 'GIT_TOKEN')]) {
+                        // single-quoted block so shell variables ($GIT_USER, $GIT_TOKEN, $BUILD_NUMBER) are expanded in shell
+                        sh '''
+                            git config user.email "jenkins@local"
+                            git config user.name "Jenkins CI"
+                            git add k8s-deploy.yaml
+                            git commit -m "Update image tag to $BUILD_NUMBER" || echo "No changes to commit"
+
+                            # Temporarily set remote to include credentials for this push only
+                            git remote set-url origin https://$GIT_USER:$GIT_TOKEN@github.com/DhruvRE/sample-app.git
+
+                            # Push changes
+                            git push origin main
+
+                            # Restore remote to the credential-less URL
+                            git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                        '''
+                    }
                 }
             }
         }
