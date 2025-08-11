@@ -3,11 +3,11 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = "dhruvre/sample-app"
-        DOCKER_CREDENTIALS = "dockerhub-credentials-id" // Jenkins DockerHub credentials ID
-        GIT_CREDENTIALS = "git-credentials-id"          // Jenkins GitHub credentials ID
-        GIT_REPO = "git@github.com:dhruvre/sample-app.git"
+        DOCKER_CREDENTIALS = "dockerhub-credentials-id"
+        GIT_CREDENTIALS = "github-token"      // match your Jenkins credential ID with PAT
+        GIT_REPO = "https://github.com/DhruvRE/sample-app.git"  // HTTPS URL, no SSH
     }
-
+    
     stages {
         stage('Checkout') {
             steps {
