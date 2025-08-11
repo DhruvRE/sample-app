@@ -9,37 +9,37 @@ pipeline {
     }
 
     triggers {
-        // Trigger on both develop and main branches push
-        githubPush()
+        pollSCM('H/5 * * * *')   // optional polling every 5 min
+        githubPush()             // GitHub webhook trigger
     }
 
     stages {
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
-                          branches: [[name: "${env.BRANCH_NAME}"]],
+                          branches: [[name: env.BRANCH_NAME ?: 'dbranch']],  // default to dbranch if not set
                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
             }
         }
 
-        stage('Check for skip commit') {
+        stage('Skip build if commit message contains [ci skip]') {
             steps {
                 script {
                     def lastCommitMsg = sh(script: "git log -1 --pretty=%B", returnStdout: true).trim()
                     if (lastCommitMsg.contains("[ci skip]")) {
-                        echo "Last commit contains [ci skip], skipping build."
+                        echo "Skipping build due to [ci skip] in commit message."
                         currentBuild.result = 'SUCCESS'
-                        error("Build skipped due to [ci skip] tag in commit message.")
+                        error("Build skipped by [ci skip]")
                     }
                 }
             }
         }
 
-        stage('Build and Test') {
+        stage('Build and Test Docker Image') {
             steps {
                 script {
                     docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
-                    // Insert your test commands here if any
+                    // Add test steps if you have any here
                 }
             }
         }
@@ -47,7 +47,7 @@ pipeline {
         stage('Push Docker Image') {
             when {
                 anyOf {
-                    branch 'develop'
+                    branch 'dbranch'
                     branch 'main'
                 }
             }
@@ -60,9 +60,9 @@ pipeline {
             }
         }
 
-        stage('Merge develop to main') {
+        stage('Merge dbranch into main') {
             when {
-                branch 'develop'
+                branch 'dbranch'
             }
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
@@ -72,10 +72,12 @@ pipeline {
                         sh """
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
+
                         git fetch origin main
                         git checkout main
                         git pull origin main
-                        git merge develop --no-ff -m "Merge develop into main [ci skip]"
+
+                        git merge dbranch --no-ff -m "Merge dbranch into main [ci skip]"
                         git push https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git main
                         """
                     }
@@ -95,8 +97,9 @@ pipeline {
                         sh """
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
-                        git checkout main
+
                         git fetch origin main
+                        git checkout main
                         git reset --hard origin/main
 
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
@@ -117,12 +120,12 @@ pipeline {
             steps {
                 script {
                     sh '''
-                        echo "Cleaning up old docker images for ${DOCKER_IMAGE}..."
-                        docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
-                        grep "^${DOCKER_IMAGE} " | \
-                        sort -k4 -r | \
-                        awk 'NR>5 { print $3 }' | \
-                        xargs -r docker rmi || true
+                    echo "Cleaning up old docker images for ${DOCKER_IMAGE}..."
+                    docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
+                    grep "^${DOCKER_IMAGE} " | \
+                    sort -k4 -r | \
+                    awk 'NR>5 { print $3 }' | \
+                    xargs -r docker rmi || true
                     '''
                 }
             }
