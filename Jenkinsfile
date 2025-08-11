@@ -9,6 +9,14 @@ pipeline {
     }
 
     stages {
+        stage('Checkout Code') {
+            steps {
+                checkout([$class: 'GitSCM',
+                          branches: [[name: 'refs/heads/main']],
+                          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
+            }
+        }
+
         stage('Check for skip commit') {
             steps {
                 script {
@@ -19,14 +27,6 @@ pipeline {
                         error("Build skipped due to [ci skip] tag.")
                     }
                 }
-            }
-        }
-
-        stage('Checkout Code') {
-            steps {
-                checkout([$class: 'GitSCM',
-                          branches: [[name: 'refs/heads/main']],
-                          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
             }
         }
 
