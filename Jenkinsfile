@@ -4,8 +4,8 @@ pipeline {
     environment {
         DOCKER_IMAGE = "dhruvre/sample-app"
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-        GIT_CREDENTIALS = "github-token"      // match your Jenkins credential ID with PAT
-        GIT_REPO = "https://github.com/DhruvRE/sample-app.git"  // HTTPS URL, no SSH
+        GIT_CREDENTIALS = "github-token"
+        GIT_REPO = "https://github.com/DhruvRE/sample-app.git"
     }
     
     stages {
@@ -18,7 +18,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    docker.build("${DOCKER_IMAGE}:${BUILD_NUMBER}")
+                    docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}")
                 }
             }
         }
@@ -27,8 +27,8 @@ pipeline {
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
-                        docker.image("${DOCKER_IMAGE}:${BUILD_NUMBER}").push()
-                        docker.image("${DOCKER_IMAGE}:${BUILD_NUMBER}").push("latest")
+                        docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
+                        docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push("latest")
                     }
                 }
             }
@@ -37,9 +37,7 @@ pipeline {
         stage('Update Kubernetes Manifest') {
             steps {
                 script {
-                    sh """
-                    sed -i 's|image: .*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' k8s-deploy.yaml
-                    """
+                    sh "sed -i 's|image: .*|image: ${DOCKER_IMAGE}:${env.BUILD_NUMBER}|' k8s-deploy.yaml"
                 }
             }
         }
@@ -47,13 +45,13 @@ pipeline {
         stage('Commit & Push Changes') {
             steps {
                 script {
-                    sh """
-                    git config user.email "jenkins@local"
-                    git config user.name "Jenkins CI"
-                    git add k8s-deploy.yaml
-                    git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
-                    git push origin main
-                    """
+                    sh '''
+                        git config user.email "jenkins@local"
+                        git config user.name "Jenkins CI"
+                        git add k8s-deploy.yaml
+                        git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
+                        git push origin main
+                    '''
                 }
             }
         }
