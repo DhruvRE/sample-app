@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sample-app
+  namespace: sample-app-ns
 spec:
   replicas: 1
   selector:
@@ -14,7 +15,11 @@ spec:
     spec:
       containers:
         - name: sample-app
+<<<<<<< HEAD:k8s-deploy.yaml
           image: dhruvre/sample-app:20
+=======
+          image: dhruvre/sample-app:REPLACE_TAG
+>>>>>>> 50eed97 (testing):manifests/k8s-deploy.yaml
           ports:
             - containerPort: 8080
 ---
@@ -22,10 +27,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: sample-app
+  namespace: sample-app-ns
 spec:
   selector:
     app: sample-app
   ports:
-    - port: 80
+    - protocol: TCP
+      port: 80
       targetPort: 8080
-      type: NodePort
+  type: ClusterIP
