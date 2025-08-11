@@ -21,7 +21,26 @@ pipeline {
             }
         }
 
+        stage('Check Commit Message') {
+            steps {
+                script {
+                    // Get the last commit message
+                    env.GIT_COMMIT_MESSAGE = sh(
+                        script: "git log -1 --pretty=%B",
+                        returnStdout: true
+                    ).trim()
+                    echo "Commit message: '${env.GIT_COMMIT_MESSAGE}'"
+                }
+            }
+        }
+
         stage('Build Docker Image') {
+            when {
+                expression {
+                    // Skip if commit message contains [skip ci]
+                    return !env.GIT_COMMIT_MESSAGE.contains('[skip ci]')
+                }
+            }
             steps {
                 script {
                     docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
@@ -30,6 +49,12 @@ pipeline {
         }
 
         stage('Push Docker Image') {
+            when {
+                expression {
+                    // Skip if commit message contains [skip ci]
+                    return !env.GIT_COMMIT_MESSAGE.contains('[skip ci]')
+                }
+            }
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
@@ -40,37 +65,37 @@ pipeline {
         }
 
         stage('Update Deployment Manifest') {
+            when {
+                expression {
+                    // Skip if commit message contains [skip ci]
+                    return !env.GIT_COMMIT_MESSAGE.contains('[skip ci]')
+                }
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                usernameVariable: 'GIT_USER',
-                                                passwordVariable: 'GIT_TOKEN')]) {
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
                     script {
                         sh """
-                        # Configure git user
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
 
-                        # Ensure we're on main branch
                         git checkout main || git checkout -b main
 
-                        # Reset local main to remote to avoid conflicts
                         git fetch origin main
                         git reset --hard origin/main
 
-                        # Update image tag in manifest
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
-                        # Commit changes if any
                         git add manifests/deployment.yaml
-                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER}"
 
-                        # Set remote URL with credentials
+                        # Commit only if changes exist, with [skip ci] to avoid loop
+                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
+
                         git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
 
-                        # Push changes forcibly but safely
                         git push --force-with-lease origin main
 
-                        # Reset remote URL to remove credentials
                         git remote set-url origin https://github.com/DhruvRE/sample-app.git
                         """
                     }
