@@ -10,7 +10,7 @@ def health_check():
 def get_user():
     return jsonify({
         "id": 1,
-        "name": "DhruvRE",
+        "name": "Dhruv",
         "role": "Developer"
     }), 200
 
