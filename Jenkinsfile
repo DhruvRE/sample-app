@@ -24,13 +24,17 @@ pipeline {
                     if (lastCommitMsg.contains("[ci skip]")) {
                         echo "Last commit contains [ci skip], skipping build."
                         currentBuild.result = 'SUCCESS'
-                        error("Build skipped due to [ci skip] tag.")
+                        // Setting a flag to skip next stages
+                        env.SKIP_BUILD = "true"
                     }
                 }
             }
         }
 
         stage('Build Docker Image') {
+            when {
+                expression { env.SKIP_BUILD != "true" }
+            }
             steps {
                 script {
                     docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
@@ -39,6 +43,9 @@ pipeline {
         }
 
         stage('Push Docker Image') {
+            when {
+                expression { env.SKIP_BUILD != "true" }
+            }
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
@@ -49,6 +56,9 @@ pipeline {
         }
 
         stage('Update Deployment Manifest') {
+            when {
+                expression { env.SKIP_BUILD != "true" }
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
                                                   usernameVariable: 'GIT_USER',
@@ -76,6 +86,9 @@ pipeline {
         }
 
         stage('Cleanup Old Docker Images') {
+            when {
+                expression { env.SKIP_BUILD != "true" }
+            }
             steps {
                 script {
                     sh '''
