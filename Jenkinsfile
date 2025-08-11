@@ -37,7 +37,8 @@ pipeline {
         stage('Update Kubernetes Manifest') {
             steps {
                 script {
-                    sh "sed -i 's|image: .*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/k8s-deploy.yaml"
+                    // Replace only REPLACE_TAG in the manifest
+                    sh "sed -i 's|REPLACE_TAG|${BUILD_NUMBER}|' manifests/k8s-deploy.yaml"
                 }
             }
         }
