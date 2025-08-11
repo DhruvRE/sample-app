@@ -3,13 +3,9 @@ pipeline {
 
     environment {
         DOCKER_IMAGE       = "dhruvre/sample-app"
-        DOCKER_CREDENTIALS = "dockerhub-credentials-id"  // your Docker Hub creds id in Jenkins
-        GIT_CREDENTIALS    = "github-token"              // your GitHub token creds id in Jenkins
+        DOCKER_CREDENTIALS = "dockerhub-credentials-id"
+        GIT_CREDENTIALS    = "github-token"
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
-    }
-
-    triggers {
-        // No pollSCM here because GitHub webhook triggers the build
     }
 
     stages {
@@ -55,10 +51,8 @@ pipeline {
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
                         git add manifests/deployment.yaml
-                        # Commit only if there are changes, add [ci skip] to avoid webhook loop
                         git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]"
 
-                        # Push with credentials in URL, then reset remote URL
                         git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
                         git push origin main
                         git remote set-url origin https://github.com/DhruvRE/sample-app.git
