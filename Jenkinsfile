@@ -45,26 +45,23 @@ pipeline {
         stage('Commit & Push Changes') {
             steps {
                 script {
-                withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                    withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
                                                     usernameVariable: 'GIT_USER',
                                                     passwordVariable: 'GIT_TOKEN')]) {
-                    sh '''
-                    git config user.email "jenkins@local"
-                    git config user.name "Jenkins CI"
-                    git add k8s-deploy.yaml
-                    git commit -m "Update image tag to $BUILD_NUMBER" || echo "No changes to commit"
+                        sh '''
+                        git config user.email "jenkins@local"
+                        git config user.name "Jenkins CI"
+                        git add manifests/k8s-deploy.yaml
+                        git commit -m "Update image tag to $BUILD_NUMBER" || echo "No changes to commit"
 
-                    # temporarily use credentials in remote URL for the push
-                    git remote set-url origin https://$GIT_USER:$GIT_TOKEN@github.com/DhruvRE/sample-app.git
-
-                    git push origin main
-
-                    # restore remote without credentials
-                    git remote set-url origin https://github.com/DhruvRE/sample-app.git
-                    '''
-                }
+                        git remote set-url origin https://$GIT_USER:$GIT_TOKEN@github.com/DhruvRE/sample-app.git
+                        git push origin main
+                        git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                        '''
+                    }
                 }
             }
         }
+
     }
 }
