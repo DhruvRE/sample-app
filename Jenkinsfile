@@ -9,6 +9,19 @@ pipeline {
     }
 
     stages {
+        stage('Check for skip commit') {
+            steps {
+                script {
+                    def lastCommitMsg = sh(script: "git log -1 --pretty=%B", returnStdout: true).trim()
+                    if (lastCommitMsg.contains("[ci skip]")) {
+                        echo "Last commit contains [ci skip], skipping build."
+                        currentBuild.result = 'SUCCESS'
+                        error("Build skipped due to [ci skip] tag.")
+                    }
+                }
+            }
+        }
+
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
