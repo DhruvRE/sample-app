@@ -9,10 +9,19 @@ pipeline {
     }
 
     triggers {
+        // Trigger on both develop and main branches push
         githubPush()
     }
 
     stages {
+        stage('Checkout Code') {
+            steps {
+                checkout([$class: 'GitSCM',
+                          branches: [[name: "${env.BRANCH_NAME}"]],
+                          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
+            }
+        }
+
         stage('Check for skip commit') {
             steps {
                 script {
@@ -26,23 +35,22 @@ pipeline {
             }
         }
 
-        stage('Checkout Code') {
-            steps {
-                checkout([$class: 'GitSCM',
-                          branches: [[name: 'main']],
-                          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
-            }
-        }
-
-        stage('Build Docker Image') {
+        stage('Build and Test') {
             steps {
                 script {
                     docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
+                    // Insert your test commands here if any
                 }
             }
         }
 
         stage('Push Docker Image') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                }
+            }
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
@@ -52,28 +60,53 @@ pipeline {
             }
         }
 
-        stage('Update Deployment Manifest') {
+        stage('Merge develop to main') {
+            when {
+                branch 'develop'
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                usernameVariable: 'GIT_USER',
-                                                passwordVariable: 'GIT_TOKEN')]) {
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
                     script {
                         sh """
-                            git config user.email "jenkins@local"
-                            git config user.name "Jenkins CI"
-                            git checkout main || git checkout -b main
-                            git fetch origin main
-                            git reset --hard origin/main
+                        git config user.email "jenkins@local"
+                        git config user.name "Jenkins CI"
+                        git fetch origin main
+                        git checkout main
+                        git pull origin main
+                        git merge develop --no-ff -m "Merge develop into main [ci skip]"
+                        git push https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git main
+                        """
+                    }
+                }
+            }
+        }
 
-                            sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
+        stage('Update Deployment Manifest') {
+            when {
+                branch 'main'
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
+                    script {
+                        sh """
+                        git config user.email "jenkins@local"
+                        git config user.name "Jenkins CI"
+                        git checkout main
+                        git fetch origin main
+                        git reset --hard origin/main
 
-                            git add manifests/deployment.yaml
-                            # Commit with [ci skip] to avoid triggering the pipeline again
-                            git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]"
+                        sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
-                            git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-                            git push --force-with-lease origin main
-                            git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                        git add manifests/deployment.yaml
+                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]"
+
+                        git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+                        git push --force-with-lease origin main
+                        git remote set-url origin https://github.com/DhruvRE/sample-app.git
                         """
                     }
                 }
