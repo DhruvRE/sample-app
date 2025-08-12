@@ -38,8 +38,8 @@ pipeline {
         stage('Update Deployment Manifest') {
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                  usernameVariable: 'GIT_USER',
-                                                  passwordVariable: 'GIT_TOKEN')]) {
+                                                usernameVariable: 'GIT_USER',
+                                                passwordVariable: 'GIT_TOKEN')]) {
                     script {
                         sh """
                         git config user.email "jenkins@local"
@@ -50,12 +50,19 @@ pipeline {
 
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
+                        # Check last commit author
+                        LAST_COMMIT_AUTHOR=\$(git log -1 --pretty=format:'%an')
+                        echo "Last commit author: \$LAST_COMMIT_AUTHOR"
+
+                        if [ "\$LAST_COMMIT_AUTHOR" != "Jenkins CI" ]; then
                         git add manifests/deployment.yaml
                         git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]"
-
                         git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
                         git push origin main
                         git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                        else
+                        echo "Last commit by Jenkins CI, skipping push to avoid loop."
+                        fi
                         """
                     }
                 }
@@ -78,9 +85,6 @@ pipeline {
         }
     }
 }
-
-
-fix here
 
 
 // pipeline {
