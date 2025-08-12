@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE       = "dhruvre/sample-app"
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-        GIT_CREDENTIALS    = "github-token"  // username+token credentials in Jenkins
+        GIT_CREDENTIALS    = "github-token"
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
     }
 
@@ -12,7 +12,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
-                          branches: [[name: 'main']],
+                          branches: [[name: "${env.BRANCH_NAME}"]],
                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
             }
         }
@@ -42,31 +42,26 @@ pipeline {
                                                   passwordVariable: 'GIT_TOKEN')]) {
                     script {
                         sh """
-                        # Configure git user
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
 
-                        # Ensure we're on main branch
-                        git checkout main || git checkout -b main
+                        # Fetch latest
+                        git fetch origin
 
-                        # Reset local main to remote to avoid conflicts
-                        git fetch origin main
-                        git reset --hard origin/main
+                        # Switch to main
+                        git checkout main || git checkout -b main origin/main
 
-                        # Update image tag in manifest
+                        # Merge the branch that triggered this build
+                        git merge --no-ff ${env.BRANCH_NAME} -m "Merge ${env.BRANCH_NAME} into main [skip ci]"
+
+                        # Update deployment manifest
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
-                        # Commit changes if any
                         git add manifests/deployment.yaml
-                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER}"
+                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
 
-                        # Set remote URL with credentials
                         git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-
-                        # Push changes forcibly but safely
-                        git push --force-with-lease origin main
-
-                        # Reset remote URL to remove credentials
+                        git push origin main
                         git remote set-url origin https://github.com/DhruvRE/sample-app.git
                         """
                     }
