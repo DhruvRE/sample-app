@@ -26,8 +26,9 @@ pipeline {
                 sh '''
                     python3 -m venv venv
                     . venv/bin/activate
+                    pip install --upgrade pip
                     pip install -r requirements.txt
-                    python your_test_file.py
+                    python3 your_test_file.py
                 '''
             }
         }
