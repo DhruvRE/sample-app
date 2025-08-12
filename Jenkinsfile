@@ -49,15 +49,10 @@ pipeline {
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
 
-                        # Fetch latest from remote
-                        git fetch origin
-
-                        # Checkout main branch (create if doesn't exist locally)
+                        git fetch origin ${SOURCE_BRANCH}:${SOURCE_BRANCH}  # fetch remote into a local branch
                         git checkout main || git checkout -b main origin/main
-
-                        # Merge source branch into main with skip ci
-                        git merge --no-ff ${params.SOURCE_BRANCH} -m "Merge ${params.SOURCE_BRANCH} into main [skip ci]"
-
+                        git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
+                        
                         # Update image tag in manifests
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
                         git add manifests/deployment.yaml
