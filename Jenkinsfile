@@ -29,7 +29,7 @@ pipeline {
                         . venv/bin/activate
                         pip install --upgrade pip
                         pip install -r requirements.txt
-                        pytest --maxfail=3 --disable-warnings -q
+                        pytest --maxfail=1 --disable-warnings -q
                     '''
                 }
             }
