@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'SOURCE_BRANCH', defaultValue: 'dbranch', description: 'Branch to build and merge into main')
+    }
+
     environment {
         DOCKER_IMAGE       = "dhruvre/sample-app"
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
@@ -12,7 +16,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
-                          branches: [[name: "dbranch"]],
+                          branches: [[name: "${params.SOURCE_BRANCH}"]],
                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
             }
         }
@@ -35,7 +39,7 @@ pipeline {
             }
         }
 
-        stage('Merge dbranch into main') {
+        stage('Merge branch into main') {
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
                                                   usernameVariable: 'GIT_USER',
@@ -45,18 +49,11 @@ pipeline {
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
 
-                        # Fetch latest
                         git fetch origin
-
-                        # Switch to main
                         git checkout main || git checkout -b main origin/main
+                        git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
 
-                        # Merge the branch that triggered this build
-                        git merge --no-ff dbranch -m "Merge dbranch into main [skip ci]"
-
-                        # Update deployment manifest
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
-
                         git add manifests/deployment.yaml
                         git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
 
