@@ -8,10 +8,6 @@ pipeline {
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
     }
 
-    triggers {
-        githubPush()
-    }
-
     stages {
         stage('Checkout Code') {
             steps {
@@ -42,34 +38,38 @@ pipeline {
         stage('Update Deployment Manifest') {
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                  usernameVariable: 'GIT_USER',
-                                                  passwordVariable: 'GIT_TOKEN')]) {
-                script {
-                    sh """
-                    sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
+                                                usernameVariable: 'GIT_USER',
+                                                passwordVariable: 'GIT_TOKEN')]) {
+                    script {
+                        sh """
+                        # Configure git user
+                        git config user.email "jenkins@local"
+                        git config user.name "Jenkins CI"
 
-                    git config user.email "jenkins@local"
-                    git config user.name "Jenkins CI"
+                        # Ensure we're on main branch
+                        git checkout main || git checkout -b main
 
-                    git add manifests/deployment.yaml
-                    git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
+                        # Reset local main to remote to avoid conflicts
+                        git fetch origin main
+                        git reset --hard origin/main
 
-                    git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+                        # Update image tag in manifest
+                        sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
-                    # Pull remote changes with rebase to avoid non-fast-forward error
-                    git pull --rebase origin main || {
-                        echo "Rebase failed, aborting"
-                        git rebase --abort
-                        exit 1
+                        # Commit changes if any
+                        git add manifests/deployment.yaml
+                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER}"
+
+                        # Set remote URL with credentials
+                        git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+
+                        # Push changes forcibly but safely
+                        git push --force-with-lease origin main
+
+                        # Reset remote URL to remove credentials
+                        git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                        """
                     }
-
-                    # Push after successful rebase
-                    git push origin main
-
-                    # Reset remote URL to avoid saving credentials
-                    git remote set-url origin https://github.com/DhruvRE/sample-app.git
-                    """
-                }
                 }
             }
         }
