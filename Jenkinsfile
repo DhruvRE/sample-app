@@ -1,38 +1,56 @@
 pipeline {
   agent any
 
+  options {
+    // prevent Declarative from doing the automatic checkout before our early check
+    skipDefaultCheckout()
+  }
+
   environment {
     DOCKER_IMAGE      = "dhruvre/sample-app"
     DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-    GIT_CREDENTIALS   = "github-token"
+    GIT_CREDENTIALS   = "github-token"   // should be a username+token or token credential in Jenkins
     GIT_REPO          = "https://github.com/DhruvRE/sample-app.git"
+    GITHUB_API        = "https://api.github.com/repos/DhruvRE/sample-app/commits/main"
   }
 
   stages {
     stage('Early: abort if triggered by Jenkins push') {
       steps {
-        // run this block under bash so "pipefail" is available
-        sh '''
-          bash -lc '
-          set -euo pipefail
-          git fetch origin main
-          LAST_ORIGIN_AUTHOR=$(git log origin/main -1 --pretty=%an || echo "")
-          echo "Latest remote author: $LAST_ORIGIN_AUTHOR"
-          if [ "$LAST_ORIGIN_AUTHOR" = "Jenkins CI" ]; then
-            echo "Last commit authored by Jenkins CI — aborting early to avoid loop."
-            exit 0
-          fi
-          echo "Not authored by Jenkins — continue with build."
-          '
-        '''
+        // use usernamePassword credential type and get token in $GIT_TOKEN (password)
+        withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                                          usernameVariable: 'GIT_USER',
+                                          passwordVariable: 'GIT_TOKEN')]) {
+          script {
+            // call GitHub API to get latest commit author (no repo checkout required)
+            def author = sh(returnStdout: true, script: """
+              bash -lc '
+                set -euo pipefail
+                curl -s -H "Authorization: token ${GIT_TOKEN}" ${GITHUB_API} \
+                  | python -c "import sys,json;print(json.load(sys.stdin)['commit']['author']['name'])"
+              '
+            """).trim()
+
+            echo "Latest remote author: ${author}"
+            if (author == "Jenkins CI") {
+              echo "Latest commit was authored by Jenkins CI — aborting early to avoid loop."
+              currentBuild.result = 'SUCCESS'
+              // stop the pipeline here
+              error("Aborted: build triggered by Jenkins push")
+            } else {
+              echo "Latest commit NOT authored by Jenkins — continuing."
+            }
+          }
+        }
       }
     }
 
-    stage('Checkout code') {
+    stage('Checkout') {
       steps {
+        // now do an explicit checkout (so we have a workspace)
         checkout([$class: 'GitSCM',
-          branches: [[name: 'refs/heads/main']],
-          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
+                  branches: [[name: 'refs/heads/main']],
+                  userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
       }
     }
 
@@ -54,60 +72,68 @@ pipeline {
       }
     }
 
-    stage('Update deployment manifest and push') {
+    stage('Update manifest and push (if needed)') {
       steps {
         withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
                                           usernameVariable: 'GIT_USER',
                                           passwordVariable: 'GIT_TOKEN')]) {
-          sh '''
-            bash -lc '
-            set -euo pipefail
+          script {
+            sh """
+              bash -lc '
+                set -euo pipefail
 
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
+                git fetch origin main
+                git checkout main
+                git reset --hard origin/main
 
-            sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|" manifests/deployment.yaml
+                # update manifest line (adjust pattern if your manifest uses different formatting)
+                sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|" manifests/deployment.yaml
 
-            if git diff --quiet -- manifests/deployment.yaml; then
-              echo "Manifest already up-to-date; nothing to commit."
-              exit 0
-            fi
+                # if no change, exit
+                if git diff --quiet -- manifests/deployment.yaml; then
+                  echo "No manifest change; nothing to push."
+                  exit 0
+                fi
 
-            git config user.email "jenkins@local"
-            git config user.name "Jenkins CI"
+                # commit as Jenkins CI so future builds detect author
+                git config user.email "jenkins@local"
+                git config user.name "Jenkins CI"
 
-            git add manifests/deployment.yaml
-            git commit -m "Update image to ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                git add manifests/deployment.yaml
+                git commit -m "Update image to ${DOCKER_IMAGE}:${BUILD_NUMBER}"
 
-            git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-            git push origin main
-            git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                # push with credentials
+                git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+                git push origin main
+                git remote set-url origin https://github.com/DhruvRE/sample-app.git
 
-            echo "Manifest updated and pushed."
-            '
-          '''
+                echo "Manifest updated and pushed."
+              '
+            """
+          }
         }
       }
     }
 
     stage('Cleanup old images') {
       steps {
-        sh '''
-          bash -lc '
-          set -euo pipefail
-          docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
-            grep "^${DOCKER_IMAGE} " | \
-            sort -k4 -r | \
-            awk "NR>5 { print \$3 }" | \
-            xargs -r docker rmi || true
-          '
-        '''
+        script {
+          // safe cleanup — keep 5 newest tags for this repository
+          sh '''
+            bash -lc '
+              set -euo pipefail
+              docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" \
+                | grep "^${DOCKER_IMAGE} " \
+                | sort -k4 -r \
+                | awk '\''NR>5 { print $3 }'\'' \
+                | xargs -r docker rmi || true
+            '
+          '''
+        }
       }
     }
   }
 }
-
 
 // pipeline {
 //     agent any
