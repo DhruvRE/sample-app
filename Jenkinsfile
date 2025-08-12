@@ -12,7 +12,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
-                          branches: [[name: "${params.BRANCH_TO_BUILD}"]],
+                          branches: [[name: "dbranch"]],
                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
             }
         }
