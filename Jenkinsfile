@@ -52,7 +52,7 @@ pipeline {
                         git checkout main || git checkout -b main origin/main
 
                         # Merge the branch that triggered this build
-                        git merge --no-ff ${env.BRANCH_NAME} -m "Merge ${env.BRANCH_NAME} into main [skip ci]"
+                        git merge --no-ff dbranch -m "Merge dbranch into main [skip ci]"
 
                         # Update deployment manifest
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
