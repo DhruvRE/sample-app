@@ -21,6 +21,15 @@ pipeline {
             }
         }
 
+        stage('Run Tests') {
+            steps {
+                sh '''
+                pip install -r requirements.txt
+                pytest --maxfail=1 --disable-warnings -q
+                '''
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 script {
@@ -52,7 +61,7 @@ pipeline {
                         git fetch origin ${SOURCE_BRANCH}:${SOURCE_BRANCH}  # fetch remote into a local branch
                         git checkout main || git checkout -b main origin/main
                         git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
-                        
+
                         # Update image tag in manifests
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
                         git add manifests/deployment.yaml
