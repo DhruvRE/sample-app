@@ -15,6 +15,6 @@ spec:
     spec:
       containers:
         - name: sample-app
-          image: dhruvre/sample-app:39
+          image: dhruvre/sample-app:16
           ports:
             - containerPort: 8080

@@ -4,34 +4,16 @@ pipeline {
     environment {
         DOCKER_IMAGE       = "dhruvre/sample-app"
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-        GIT_CREDENTIALS    = "github-token"
+        GIT_CREDENTIALS    = "github-token"  // username+token credentials in Jenkins
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
-    }
-
-    triggers {
-        // Poll only dbranch every 5 minutes (or use GitHub webhook but filter branch)
-        pollSCM('H/5 * * * *')
     }
 
     stages {
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
-                          branches: [[name: 'refs/heads/dbranch']],
+                          branches: [[name: 'main']],
                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
-            }
-        }
-
-        stage('Skip CI if commit says so') {
-            steps {
-                script {
-                    def lastCommitMsg = sh(script: "git log -1 --pretty=%B", returnStdout: true).trim()
-                    if (lastCommitMsg.contains("[ci skip]")) {
-                        echo "Build skipped due to [ci skip] tag in commit message."
-                        currentBuild.result = 'SUCCESS'
-                        error("Skipping build")
-                    }
-                }
             }
         }
 
@@ -60,32 +42,34 @@ pipeline {
                                                   passwordVariable: 'GIT_TOKEN')]) {
                     script {
                         sh """
+                        # Configure git user
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
+
+                        # Ensure we're on main branch
+                        git checkout main || git checkout -b main
+
+                        # Reset local main to remote to avoid conflicts
                         git fetch origin main
-                        git checkout main
-                        git pull origin main
-                        git merge dbranch --no-ff -m "Merge dbranch into main [ci skip]"
-                        git push https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git main
+                        git reset --hard origin/main
+
+                        # Update image tag in manifest
+                        sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
+
+                        # Commit changes if any
+                        git add manifests/deployment.yaml
+                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER}"
+
+                        # Set remote URL with credentials
+                        git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+
+                        # Push changes forcibly but safely
+                        git push --force-with-lease origin main
+
+                        # Reset remote URL to remove credentials
+                        git remote set-url origin https://github.com/DhruvRE/sample-app.git
                         """
                     }
-                }
-            }
-        }
-
-        // Optional: You can do deployment manifest update manually on main branch or in a separate job.
-        // Avoid doing it automatically here to prevent looping.
-        stage('Cleanup Old Docker Images') {
-            steps {
-                script {
-                    sh '''
-                        echo "Cleaning up old docker images for ${DOCKER_IMAGE}..."
-                        docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
-                        grep "^${DOCKER_IMAGE} " | \
-                        sort -k4 -r | \
-                        awk 'NR>5 { print $3 }' | \
-                        xargs -r docker rmi || true
-                    '''
                 }
             }
         }
