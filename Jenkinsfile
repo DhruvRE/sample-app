@@ -24,7 +24,7 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
-                pip install -r requirements.txt
+                pip3 install -r requirements.txt
                 pytest --maxfail=1 --disable-warnings -q
                 '''
             }
