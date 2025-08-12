@@ -4,8 +4,12 @@ pipeline {
     environment {
         DOCKER_IMAGE       = "dhruvre/sample-app"
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-        GIT_CREDENTIALS    = "github-token"
+        GIT_CREDENTIALS    = "github-token"  // username+token credentials in Jenkins
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
+    }
+
+    triggers {
+        githubPush()
     }
 
     stages {
@@ -37,16 +41,35 @@ pipeline {
 
         stage('Update Deployment Manifest') {
             steps {
+                withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
                 script {
                     sh """
                     sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
 
                     git config user.email "jenkins@local"
                     git config user.name "Jenkins CI"
+
                     git add manifests/deployment.yaml
                     git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
-                    git push https://${GIT_CREDENTIALS}@${GIT_REPO#https://}
+
+                    git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+
+                    # Pull remote changes with rebase to avoid non-fast-forward error
+                    git pull --rebase origin main || {
+                        echo "Rebase failed, aborting"
+                        git rebase --abort
+                        exit 1
+                    }
+
+                    # Push after successful rebase
+                    git push origin main
+
+                    # Reset remote URL to avoid saving credentials
+                    git remote set-url origin https://github.com/DhruvRE/sample-app.git
                     """
+                }
                 }
             }
         }
