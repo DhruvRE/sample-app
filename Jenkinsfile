@@ -9,7 +9,7 @@ pipeline {
     }
 
     stages {
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
                           branches: [[name: 'main']],
@@ -20,12 +20,12 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}")
+                    docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
                 }
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Push Docker Image') {
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
@@ -35,22 +35,18 @@ pipeline {
             }
         }
 
-        stage('Update K8s Manifest in GitOps Repo') {
+        stage('Update Deployment Manifest') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                     usernameVariable: 'GIT_USER',
-                                                     passwordVariable: 'GIT_TOKEN')]) {
-                        sh '''
-                        git clone https://$GIT_USER:$GIT_TOKEN@github.com/DhruvRE/sample-app-deploy.git
-                        cd sample-app-deploy
-                        sed -i "s|REPLACE_TAG|${BUILD_NUMBER}|" k8s-deploy.yaml
-                        git config user.email "jenkins@local"
-                        git config user.name "Jenkins CI"
-                        git commit -am "Update image tag to $BUILD_NUMBER" || echo "No changes to commit"
-                        git push
-                        '''
-                    }
+                    sh """
+                    sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
+
+                    git config user.email "jenkins@local"
+                    git config user.name "Jenkins CI"
+                    git add manifests/deployment.yaml
+                    git commit -m "Update image tag to ${BUILD_NUMBER}" || echo "No changes to commit"
+                    git push https://${GIT_CREDENTIALS}@${GIT_REPO#https://}
+                    """
                 }
             }
         }
