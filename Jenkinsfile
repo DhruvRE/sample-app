@@ -23,15 +23,14 @@ pipeline {
 
         stage('Run Tests') {
             steps {
-                dir('app') {
-                    sh '''
-                        python3 -m venv venv
-                        . venv/bin/activate
-                        pip install --upgrade pip
-                        pip install -r requirements.txt
-                        python3 test_app.py
-                    '''
-                }
+                sh '''
+                    cd app
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
+                    python3 test_app.py
+                '''
             }
         }
 
