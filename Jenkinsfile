@@ -1,90 +1,212 @@
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        DOCKER_IMAGE       = "dhruvre/sample-app"
-        DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-        GIT_CREDENTIALS    = "github-token"
-        GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
+  environment {
+    DOCKER_IMAGE      = "dhruvre/sample-app"
+    DOCKER_CREDENTIALS = "dockerhub-credentials-id"
+    GIT_CREDENTIALS   = "github-token"
+    GIT_REPO          = "https://github.com/DhruvRE/sample-app.git"
+  }
+
+  stages {
+    stage('Early: abort if triggered by Jenkins push') {
+      steps {
+        script {
+          sh '''
+            set -euo pipefail
+            # fetch remote to inspect the latest commit author
+            git fetch origin main
+
+            # who authored the latest commit on origin/main?
+            LAST_ORIGIN_AUTHOR=$(git log origin/main -1 --pretty=%an)
+            echo "Latest remote author: $LAST_ORIGIN_AUTHOR"
+
+            if [ "$LAST_ORIGIN_AUTHOR" = "Jenkins CI" ]; then
+              echo "Last commit authored by Jenkins CI — aborting early to avoid loop."
+              exit 0
+            fi
+
+            echo "Not authored by Jenkins — continue with build."
+          '''
+        }
+      }
     }
 
-    stages {
-        stage('Checkout Code') {
-            steps {
-                checkout([$class: 'GitSCM',
-                          branches: [[name: 'refs/heads/main']],
-                          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
-                }
-            }
-        }
-
-        stage('Push Docker Image') {
-            steps {
-                script {
-                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
-                        docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
-                    }
-                }
-            }
-        }
-
-        stage('Update Deployment Manifest') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                usernameVariable: 'GIT_USER',
-                                                passwordVariable: 'GIT_TOKEN')]) {
-                    script {
-                        sh """
-                        git config user.email "jenkins@local"
-                        git config user.name "Jenkins CI"
-                        git fetch origin main
-                        git checkout main
-                        git reset --hard origin/main
-
-                        sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
-
-                        # Check last commit author
-                        LAST_COMMIT_AUTHOR=\$(git log -1 --pretty=format:'%an')
-                        echo "Last commit author: \$LAST_COMMIT_AUTHOR"
-
-                        if [ "\$LAST_COMMIT_AUTHOR" != "Jenkins CI" ]; then
-                        git add manifests/deployment.yaml
-                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]"
-                        git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-                        git push origin main
-                        git remote set-url origin https://github.com/DhruvRE/sample-app.git
-                        else
-                        echo "Last commit by Jenkins CI, skipping push to avoid loop."
-                        fi
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('Cleanup Old Docker Images') {
-            steps {
-                script {
-                    sh '''
-                    echo "Cleaning up old docker images for ${DOCKER_IMAGE}..."
-                    docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
-                    grep "^${DOCKER_IMAGE} " | \
-                    sort -k4 -r | \
-                    awk 'NR>5 { print $3 }' | \
-                    xargs -r docker rmi || true
-                    '''
-                }
-            }
-        }
+    stage('Checkout code') {
+      steps {
+        // normal checkout to get workspace in sync
+        checkout([$class: 'GitSCM',
+                  branches: [[name: 'refs/heads/main']],
+                  userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
+      }
     }
+
+    stage('Build image') {
+      steps {
+        script {
+          docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
+        }
+      }
+    }
+
+    stage('Push image') {
+      steps {
+        script {
+          docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
+            docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
+          }
+        }
+      }
+    }
+
+    stage('Update deployment manifest and push') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                                          usernameVariable: 'GIT_USER',
+                                          passwordVariable: 'GIT_TOKEN')]) {
+          script {
+            sh '''
+              set -euo pipefail
+
+              # Make sure we are in sync with remote main
+              git fetch origin main
+              git checkout main
+              git reset --hard origin/main
+
+              # Replace the image tag line in manifest (adjust pattern if needed)
+              sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|" manifests/deployment.yaml
+
+              # If no change, nothing to push
+              if git diff --quiet -- manifests/deployment.yaml; then
+                echo "Manifest already up-to-date; nothing to commit."
+                exit 0
+              fi
+
+              # Commit the change as Jenkins CI (so subsequent triggers detect author)
+              git config user.email "jenkins@local"
+              git config user.name "Jenkins CI"
+
+              git add manifests/deployment.yaml
+              git commit -m "Update image to ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+
+              # Push with credentials (temporary remote URL)
+              git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+              git push origin main
+
+              # restore remote url (optional; workspace is ephemeral in CI)
+              git remote set-url origin https://github.com/DhruvRE/sample-app.git
+
+              echo "Manifest updated and pushed."
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Cleanup old images') {
+      steps {
+        script {
+          sh '''
+            docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
+            grep "^${DOCKER_IMAGE} " | \
+            sort -k4 -r | \
+            awk 'NR>5 { print $3 }' | \
+            xargs -r docker rmi || true
+          '''
+        }
+      }
+    }
+  }
 }
+
+
+// pipeline {
+//     agent any
+
+//     environment {
+//         DOCKER_IMAGE       = "dhruvre/sample-app"
+//         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
+//         GIT_CREDENTIALS    = "github-token"
+//         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
+//     }
+
+//     stages {
+//         stage('Checkout Code') {
+//             steps {
+//                 checkout([$class: 'GitSCM',
+//                           branches: [[name: 'refs/heads/main']],
+//                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
+//             }
+//         }
+
+//         stage('Build Docker Image') {
+//             steps {
+//                 script {
+//                     docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
+//                 }
+//             }
+//         }
+
+//         stage('Push Docker Image') {
+//             steps {
+//                 script {
+//                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
+//                         docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage('Update Deployment Manifest') {
+//             steps {
+//                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+//                                                 usernameVariable: 'GIT_USER',
+//                                                 passwordVariable: 'GIT_TOKEN')]) {
+//                     script {
+//                         sh """
+//                         git config user.email "jenkins@local"
+//                         git config user.name "Jenkins CI"
+//                         git fetch origin main
+//                         git checkout main
+//                         git reset --hard origin/main
+
+//                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
+
+//                         # Check last commit author
+//                         LAST_COMMIT_AUTHOR=\$(git log -1 --pretty=format:'%an')
+//                         echo "Last commit author: \$LAST_COMMIT_AUTHOR"
+
+//                         if [ "\$LAST_COMMIT_AUTHOR" != "Jenkins CI" ]; then
+//                         git add manifests/deployment.yaml
+//                         git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [ci skip]"
+//                         git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+//                         git push origin main
+//                         git remote set-url origin https://github.com/DhruvRE/sample-app.git
+//                         else
+//                         echo "Last commit by Jenkins CI, skipping push to avoid loop."
+//                         fi
+//                         """
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage('Cleanup Old Docker Images') {
+//             steps {
+//                 script {
+//                     sh '''
+//                     echo "Cleaning up old docker images for ${DOCKER_IMAGE}..."
+//                     docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
+//                     grep "^${DOCKER_IMAGE} " | \
+//                     sort -k4 -r | \
+//                     awk 'NR>5 { print $3 }' | \
+//                     xargs -r docker rmi || true
+//                     '''
+//                 }
+//             }
+//         }
+//     }
+// }
 
 
 // pipeline {
