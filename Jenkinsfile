@@ -11,33 +11,28 @@ pipeline {
   stages {
     stage('Early: abort if triggered by Jenkins push') {
       steps {
-        script {
-          sh '''
-            set -euo pipefail
-            # fetch remote to inspect the latest commit author
-            git fetch origin main
-
-            # who authored the latest commit on origin/main?
-            LAST_ORIGIN_AUTHOR=$(git log origin/main -1 --pretty=%an)
-            echo "Latest remote author: $LAST_ORIGIN_AUTHOR"
-
-            if [ "$LAST_ORIGIN_AUTHOR" = "Jenkins CI" ]; then
-              echo "Last commit authored by Jenkins CI — aborting early to avoid loop."
-              exit 0
-            fi
-
-            echo "Not authored by Jenkins — continue with build."
-          '''
-        }
+        // run this block under bash so "pipefail" is available
+        sh '''
+          bash -lc '
+          set -euo pipefail
+          git fetch origin main
+          LAST_ORIGIN_AUTHOR=$(git log origin/main -1 --pretty=%an || echo "")
+          echo "Latest remote author: $LAST_ORIGIN_AUTHOR"
+          if [ "$LAST_ORIGIN_AUTHOR" = "Jenkins CI" ]; then
+            echo "Last commit authored by Jenkins CI — aborting early to avoid loop."
+            exit 0
+          fi
+          echo "Not authored by Jenkins — continue with build."
+          '
+        '''
       }
     }
 
     stage('Checkout code') {
       steps {
-        // normal checkout to get workspace in sync
         checkout([$class: 'GitSCM',
-                  branches: [[name: 'refs/heads/main']],
-                  userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
+          branches: [[name: 'refs/heads/main']],
+          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
       }
     }
 
@@ -64,56 +59,50 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
                                           usernameVariable: 'GIT_USER',
                                           passwordVariable: 'GIT_TOKEN')]) {
-          script {
-            sh '''
-              set -euo pipefail
+          sh '''
+            bash -lc '
+            set -euo pipefail
 
-              # Make sure we are in sync with remote main
-              git fetch origin main
-              git checkout main
-              git reset --hard origin/main
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
 
-              # Replace the image tag line in manifest (adjust pattern if needed)
-              sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|" manifests/deployment.yaml
+            sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|" manifests/deployment.yaml
 
-              # If no change, nothing to push
-              if git diff --quiet -- manifests/deployment.yaml; then
-                echo "Manifest already up-to-date; nothing to commit."
-                exit 0
-              fi
+            if git diff --quiet -- manifests/deployment.yaml; then
+              echo "Manifest already up-to-date; nothing to commit."
+              exit 0
+            fi
 
-              # Commit the change as Jenkins CI (so subsequent triggers detect author)
-              git config user.email "jenkins@local"
-              git config user.name "Jenkins CI"
+            git config user.email "jenkins@local"
+            git config user.name "Jenkins CI"
 
-              git add manifests/deployment.yaml
-              git commit -m "Update image to ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+            git add manifests/deployment.yaml
+            git commit -m "Update image to ${DOCKER_IMAGE}:${BUILD_NUMBER}"
 
-              # Push with credentials (temporary remote URL)
-              git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-              git push origin main
+            git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+            git push origin main
+            git remote set-url origin https://github.com/DhruvRE/sample-app.git
 
-              # restore remote url (optional; workspace is ephemeral in CI)
-              git remote set-url origin https://github.com/DhruvRE/sample-app.git
-
-              echo "Manifest updated and pushed."
-            '''
-          }
+            echo "Manifest updated and pushed."
+            '
+          '''
         }
       }
     }
 
     stage('Cleanup old images') {
       steps {
-        script {
-          sh '''
-            docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
+        sh '''
+          bash -lc '
+          set -euo pipefail
+          docker images --format "{{.Repository}} {{.Tag}} {{.ID}} {{.CreatedAt}}" | \
             grep "^${DOCKER_IMAGE} " | \
             sort -k4 -r | \
-            awk 'NR>5 { print $3 }' | \
+            awk "NR>5 { print \$3 }" | \
             xargs -r docker rmi || true
-          '''
-        }
+          '
+        '''
       }
     }
   }
