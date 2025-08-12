@@ -24,8 +24,10 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
-                pip3 install -r requirements.txt
-                pytest --maxfail=1 --disable-warnings -q
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install -r requirements.txt
+                    python your_test_file.py
                 '''
             }
         }
