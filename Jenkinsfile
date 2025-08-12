@@ -16,7 +16,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
-                          branches: [[name: "${params.SOURCE_BRANCH}"]],
+                          branches: [[name: "*/${params.SOURCE_BRANCH}"]],
                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
             }
         }
@@ -49,14 +49,23 @@ pipeline {
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
 
+                        # Fetch latest from remote
                         git fetch origin
-                        git checkout main || git checkout -b main origin/main
-                        git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
 
+                        # Checkout main branch (create if doesn't exist locally)
+                        git checkout main || git checkout -b main origin/main
+
+                        # Merge source branch into main with skip ci
+                        git merge --no-ff ${params.SOURCE_BRANCH} -m "Merge ${params.SOURCE_BRANCH} into main [skip ci]"
+
+                        # Update image tag in manifests
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
                         git add manifests/deployment.yaml
+
+                        # Commit only if there are changes
                         git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
 
+                        # Push changes to main
                         git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
                         git push origin main
                         git remote set-url origin https://github.com/DhruvRE/sample-app.git
