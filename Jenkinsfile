@@ -1,10 +1,14 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'SOURCE_BRANCH', defaultValue: 'dbranch', description: 'Branch to build and merge into main')
+    }
+
     environment {
         DOCKER_IMAGE       = "dhruvre/sample-app"
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-        GIT_CREDENTIALS    = "github-token"  // username+token credentials in Jenkins
+        GIT_CREDENTIALS    = "github-token"
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
     }
 
@@ -12,7 +16,7 @@ pipeline {
         stage('Checkout Code') {
             steps {
                 checkout([$class: 'GitSCM',
-                          branches: [[name: 'main']],
+                          branches: [[name: "*/${params.SOURCE_BRANCH}"]],
                           userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
             }
         }
@@ -35,38 +39,30 @@ pipeline {
             }
         }
 
-        stage('Update Deployment Manifest') {
+        stage('Merge branch into main') {
             steps {
                 withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                                usernameVariable: 'GIT_USER',
-                                                passwordVariable: 'GIT_TOKEN')]) {
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
                     script {
                         sh """
-                        # Configure git user
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
 
-                        # Ensure we're on main branch
-                        git checkout main || git checkout -b main
-
-                        # Reset local main to remote to avoid conflicts
-                        git fetch origin main
-                        git reset --hard origin/main
-
-                        # Update image tag in manifest
+                        git fetch origin ${SOURCE_BRANCH}:${SOURCE_BRANCH}  # fetch remote into a local branch
+                        git checkout main || git checkout -b main origin/main
+                        git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
+                        
+                        # Update image tag in manifests
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
-
-                        # Commit changes if any
                         git add manifests/deployment.yaml
-                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER}"
 
-                        # Set remote URL with credentials
+                        # Commit only if there are changes
+                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
+
+                        # Push changes to main
                         git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-
-                        # Push changes forcibly but safely
-                        git push --force-with-lease origin main
-
-                        # Reset remote URL to remove credentials
+                        git push origin main
                         git remote set-url origin https://github.com/DhruvRE/sample-app.git
                         """
                     }
