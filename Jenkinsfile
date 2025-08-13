@@ -42,12 +42,15 @@ pipeline {
             steps {
                 dir('app') {
                     withSonarQubeEnv('MySonarQube') {
-                        sh """
-                            sonar-scanner \
-                              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                              -Dsonar.sources=. \
-                              -Dsonar.python.coverage.reportPaths=coverage.xml
-                        """
+                        script {
+                            def scannerHome = tool 'SonarScanner'
+                            sh """
+                                ${scannerHome}/bin/sonar-scanner \
+                                -Dsonar.projectKey=my-app \
+                                -Dsonar.sources=. \
+                                -Dsonar.python.coverage.reportPaths=coverage.xml
+                            """
+                        }
                     }
                 }
             }
