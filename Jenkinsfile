@@ -12,7 +12,7 @@ pipeline {
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
         SONAR_HOST_URL     = "http://localhost:9000" // Change to your SonarQube URL or ngrok URL
         SONAR_PROJECT_KEY  = "my-app"            // Change to your SonarQube project key
-        SONAR_TOKEN        = credentials('sonar-token-id') // Jenkins secret for Sonar token
+        SONAR_TOKEN        = "sonar-token-id" // Jenkins secret for Sonar token
     }
 
     stages {
