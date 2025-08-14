@@ -10,9 +10,9 @@ pipeline {
         DOCKER_CREDENTIALS = "dockerhub-credentials-id"
         GIT_CREDENTIALS    = "github-token"
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
-        SONAR_HOST_URL     = "http://localhost:9000" // Change to your SonarQube URL or ngrok URL
-        SONAR_PROJECT_KEY  = "my-app"            // Change to your SonarQube project key
-        SONAR_TOKEN        = "sonar-token-id" // Jenkins secret for Sonar token
+        SONAR_HOST_URL     = "http://sonarqube:9000"
+        SONAR_PROJECT_KEY  = "jenkins-sonar-app"
+        SONAR_TOKEN        = credentials('sonar-token-id')
     }
 
     stages {
@@ -41,12 +41,12 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 dir('app') {
-                    withSonarQubeEnv('MySonarQube') {
+                    withSonarQubeEnv('MySonarQube') { // Name from Jenkins "Configure System"
                         script {
                             def scannerHome = tool 'SonarScanner'
                             sh """
                                 ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=my-app \
+                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                 -Dsonar.sources=. \
                                 -Dsonar.python.coverage.reportPaths=coverage.xml
                             """
@@ -65,16 +65,18 @@ pipeline {
                             error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
                         }
 
-                        // Fetch coverage from Sonar API
-                        def coverage = sh(
-                            script: """curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
-                                      | jq -r '.component.measures[0].value'""",
-                            returnStdout: true
-                        ).trim().toFloat()
+                        // Get coverage from Sonar API securely
+                        withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
+                            def coverage = sh(
+                                script: """curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
+                                          | jq -r '.component.measures[0].value'""",
+                                returnStdout: true
+                            ).trim().toFloat()
 
-                        echo "Coverage from SonarQube: ${coverage}%"
-                        if (coverage < 80) {
-                            error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
+                            echo "Coverage from SonarQube: ${coverage}%"
+                            if (coverage < 80) {
+                                error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
+                            }
                         }
                     }
                 }
