@@ -41,7 +41,7 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 dir('app') {
-                    withSonarQubeEnv('MySonarQube') { // Uses Jenkins "Configure System" Sonar server
+                    withSonarQubeEnv('MySonarQube') {
                         withCredentials([string(credentialsId: env.SONAR_TOKEN, variable: 'SONAR_TOKEN_VALUE')]) {
                             script {
                                 def scannerHome = tool 'SonarScanner'
