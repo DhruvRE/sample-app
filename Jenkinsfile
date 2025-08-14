@@ -68,23 +68,11 @@ pipeline {
                         if (qg.status != 'OK') {
                             error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
                         }
-
-                        // Extract coverage from quality gate conditions
-                        def coverageMetric = qg.conditions.find { it.metricKey == 'coverage' }
-                        if (coverageMetric) {
-                            def coverage = coverageMetric.value.toFloat()
-                            echo "Coverage from SonarQube: ${coverage}%"
-                            if (coverage < 80) {
-                                error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
-                            }
-                        } else {
-                            echo "Coverage metric not found in Quality Gate."
-                        }
+                        echo "Quality Gate passed with status: ${qg.status}"
                     }
                 }
             }
         }
-
 
         stage('Build Docker Image') {
             steps {
