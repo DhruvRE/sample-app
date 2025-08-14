@@ -12,6 +12,7 @@ pipeline {
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
         SONAR_HOST_URL     = "http://sonarqube:9000"
         SONAR_PROJECT_KEY  = "jenkins-sonar-app"
+        SONAR_TOKEN        = "sonarqube-token"
     }
 
     stages {
