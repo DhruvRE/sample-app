@@ -37,24 +37,30 @@ pipeline {
                 }
             }
         }
-
         stage('SonarQube Analysis') {
             steps {
                 dir('app') {
-                    withSonarQubeEnv('MySonarQube') {
-                        withCredentials([string(credentialsId: env.SONAR_TOKEN, variable: 'SONAR_TOKEN_VALUE')]) {
+                    // Ensure SONAR_TOKEN is read from Jenkins credentials securely
+                    withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
+                        // withSonarQubeEnv injects SONAR_HOST_URL and related env vars if you configured "MySonarQube" in Manage Jenkins
+                        withSonarQubeEnv('MySonarQube') {
                             script {
-                                def scannerHome = tool 'SonarScanner'
+                                // Use official SonarScanner Docker image to run the scanner reliably
+                                docker.image('sonarsource/sonar-scanner-cli:latest').inside('--user root') {
+                                    sh '''
+                                        # debug output - helpful if something fails
+                                        echo "Running sonar-scanner in $(pwd)"
+                                        echo "SONAR_HOST_URL=$SONAR_HOST_URL"
+                                        echo "Using workspace: $WORKSPACE"
 
-                                sh """
-                                    # Run SonarScanner in debug mode to generate .sonar and report-task.txt
-                                    ${scannerHome}/bin/sonar-scanner -X \
-                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                    -Dsonar.sources=. \
-                                    -Dsonar.host.url=${SONAR_HOST_URL} \
-                                    -Dsonar.login=${SONAR_TOKEN_VALUE} \
-                                    -Dsonar.python.coverage.reportPaths=coverage.xml
-                                """
+                                        sonar-scanner \
+                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                        -Dsonar.sources=. \
+                                        -Dsonar.host.url=${SONAR_HOST_URL} \
+                                        -Dsonar.login=${SONAR_TOKEN} \
+                                        -Dsonar.python.coverage.reportPaths=coverage.xml -X
+                                    '''
+                                }
                             }
                         }
                     }
@@ -64,23 +70,28 @@ pipeline {
 
         stage('Quality Gate Check') {
             steps {
-                timeout(time: 2, unit: 'MINUTES') {
+                timeout(time: 5, unit: 'MINUTES') {
                     script {
+                        // Wait for SonarQube analysis to finish and fetch the quality gate status
                         def qg = waitForQualityGate()
+                        echo "Quality Gate status: ${qg.status}"
                         if (qg.status != 'OK') {
                             error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
                         }
 
-                        // Get coverage from Sonar API securely
+                        // Optionally check coverage metric via Sonar API (still uses SONAR_TOKEN)
                         withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
-                            def coverage = sh(
-                                script: """curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
-                                          | jq -r '.component.measures[0].value'""",
+                            def coverageJson = sh(
+                                script: """curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage""",
                                 returnStdout: true
-                            ).trim().toFloat()
-
+                            ).trim()
+                            echo "Sonar measures: ${coverageJson}"
+                            def coverage = sh(
+                                script: "echo '${coverageJson}' | jq -r '.component.measures[0].value'",
+                                returnStdout: true
+                            ).trim()
                             echo "Coverage from SonarQube: ${coverage}%"
-                            if (coverage < 80) {
+                            if (coverage != '' && coverage.toFloat() < 80) {
                                 error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
                             }
                         }
