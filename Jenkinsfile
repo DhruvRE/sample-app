@@ -12,7 +12,6 @@ pipeline {
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
         SONAR_HOST_URL     = "http://sonarqube:9000"
         SONAR_PROJECT_KEY  = "jenkins-sonar-app"
-        SONAR_TOKEN        = "sonarqube-token"
     }
 
     stages {
@@ -28,6 +27,7 @@ pipeline {
             steps {
                 dir('app') {
                     sh '''
+                        set -e
                         python3 -m venv venv
                         . venv/bin/activate
                         pip install --upgrade pip
@@ -41,14 +41,15 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 dir('app') {
-                    withSonarQubeEnv('MySonarQube') { // Name from Jenkins "Configure System"
+                    withSonarQubeEnv('MySonarQube') {
                         script {
                             def scannerHome = tool 'SonarScanner'
                             sh """
+                                set -e
                                 ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                -Dsonar.sources=. \
-                                -Dsonar.python.coverage.reportPaths=coverage.xml
+                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                    -Dsonar.sources=. \
+                                    -Dsonar.python.coverage.reportPaths=coverage.xml
                             """
                         }
                     }
@@ -65,11 +66,12 @@ pipeline {
                             error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
                         }
 
-                        // Get coverage from Sonar API securely
                         withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
                             def coverage = sh(
-                                script: """curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
-                                          | jq -r '.component.measures[0].value'""",
+                                script: """
+                                    curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
+                                    | jq -r '.component.measures[0].value'
+                                """,
                                 returnStdout: true
                             ).trim().toFloat()
 
@@ -98,7 +100,7 @@ pipeline {
                         docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
                     }
                 }
-            }             
+            }
         }
 
         stage('Merge branch into main') {
@@ -108,6 +110,7 @@ pipeline {
                                                   passwordVariable: 'GIT_TOKEN')]) {
                     script {
                         sh """
+                        set -e
                         git config user.email "jenkins@local"
                         git config user.name "Jenkins CI"
 
