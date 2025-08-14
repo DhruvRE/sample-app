@@ -2,9 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sample-app
-  namespace: sample-app-ns
+  namespace: ${NAMESPACE}
 spec:
-  replicas: 1
+  replicas: ${REPLICAS}
   selector:
     matchLabels:
       app: sample-app
@@ -15,6 +15,12 @@ spec:
     spec:
       containers:
         - name: sample-app
-          image: dhruvre/sample-app:18
+          image: ${DOCKER_IMAGE}:${IMAGE_TAG}
           ports:
             - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
