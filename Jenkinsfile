@@ -32,7 +32,8 @@ pipeline {
                         . venv/bin/activate
                         pip install --upgrade pip
                         pip install -r requirements.txt
-                        pytest --maxfail=1 --disable-warnings -q --cov=. --cov-report xml:coverage.xml
+                        # Run tests with coverage, output to coverage.xml in app folder
+                        pytest --maxfail=1 --disable-warnings -q --cov=./ --cov-report xml:coverage.xml
                     '''
                 }
             }
@@ -49,7 +50,8 @@ pipeline {
                                 ${scannerHome}/bin/sonar-scanner \
                                     -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                     -Dsonar.sources=. \
-                                    -Dsonar.python.coverage.reportPaths=coverage.xml
+                                    -Dsonar.python.coverage.reportPaths=coverage.xml \
+                                    -Dsonar.host.url=${SONAR_HOST_URL}
                             """
                         }
                     }
@@ -118,6 +120,7 @@ pipeline {
                         git checkout main || git checkout -b main origin/main
                         git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
 
+                        # Update deployment image tag
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
                         git add manifests/deployment.yaml
                         git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
