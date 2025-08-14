@@ -45,12 +45,14 @@ pipeline {
                         withCredentials([string(credentialsId: env.SONAR_TOKEN, variable: 'SONAR_TOKEN_VALUE')]) {
                             script {
                                 def scannerHome = tool 'SonarScanner'
+
                                 sh """
-                                    ${scannerHome}/bin/sonar-scanner \
+                                    # Run SonarScanner in debug mode to generate .sonar and report-task.txt
+                                    ${scannerHome}/bin/sonar-scanner -X \
                                     -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                     -Dsonar.sources=. \
                                     -Dsonar.host.url=${SONAR_HOST_URL} \
-                                    -Dsonar.token=${SONAR_TOKEN_VALUE} \
+                                    -Dsonar.login=${SONAR_TOKEN_VALUE} \
                                     -Dsonar.python.coverage.reportPaths=coverage.xml
                                 """
                             }
