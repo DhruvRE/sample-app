@@ -12,7 +12,6 @@ pipeline {
         GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
         SONAR_HOST_URL     = "http://sonarqube:9000"
         SONAR_PROJECT_KEY  = "jenkins-sonar-app"
-        SONAR_TOKEN        = "sonarqube-token"
     }
 
     stages {
@@ -33,7 +32,8 @@ pipeline {
                         . venv/bin/activate
                         pip install --upgrade pip
                         pip install -r requirements.txt
-                        pytest --maxfail=1 --disable-warnings -q --cov=. --cov-report xml:coverage.xml
+                        # Run tests with coverage, output to coverage.xml in app folder
+                        pytest --maxfail=1 --disable-warnings -q --cov=./ --cov-report xml:coverage.xml
                     '''
                 }
             }
@@ -48,12 +48,10 @@ pipeline {
                             sh """
                                 set -e
                                 ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                -Dsonar.sources=. \
-                                -Dsonar.python.coverage.reportPaths=coverage.xml \
-                                -Dsonar.login=${SONAR_TOKEN} \
-                                -Dsonar.branch.name=${SOURCE_BRANCH} \
-                                -Dsonar.exclusions=myenv/**,**/__pycache__/**,**/*.pyc
+                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                    -Dsonar.sources=. \
+                                    -Dsonar.python.coverage.reportPaths=coverage.xml \
+                                    -Dsonar.host.url=${SONAR_HOST_URL}
                             """
                         }
                     }
@@ -66,12 +64,23 @@ pipeline {
                 timeout(time: 5, unit: 'MINUTES') {
                     script {
                         def qg = waitForQualityGate()
-                        echo "SonarQube Quality Gate status: ${qg.status}"
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
+                        }
 
-                        if (qg.status != 'OK' && qg.conditions.any { it.metricKey == 'new_coverage' && it.value < 80 }) {
-                            error "Pipeline aborted: New code coverage < 80%"
-                        } else {
-                            echo "Quality Gate passed for new code coverage."
+                        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                            def coverage = sh(
+                                script: """
+                                    curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
+                                    | jq -r '.component.measures[0].value'
+                                """,
+                                returnStdout: true
+                            ).trim().toFloat()
+
+                            echo "Coverage from SonarQube: ${coverage}%"
+                            if (coverage < 80) {
+                                error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
+                            }
                         }
                     }
                 }
@@ -111,6 +120,7 @@ pipeline {
                         git checkout main || git checkout -b main origin/main
                         git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
 
+                        # Update deployment image tag
                         sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
                         git add manifests/deployment.yaml
                         git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
