@@ -56,9 +56,9 @@ pipeline {
                                 ${scannerHome}/bin/sonar-scanner \
                                     -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                     -Dsonar.sources=. \
-                                    -Dsonar.python.coverage.reportPaths=../coverage.xml \
+                                    -Dsonar.python.coverage.reportPaths=coverage.xml \
                                     -Dsonar.host.url=${SONAR_HOST_URL} \
-                                    -Dsonar.ex`clusions=venv/**,**/__pycache__/**,**/*.pyc
+                                    -Dsonar.exclusions=venv/**,**/__pycache__/**,**/*.pyc
                             """
                         }
                     }
