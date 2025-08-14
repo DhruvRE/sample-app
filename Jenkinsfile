@@ -66,7 +66,7 @@ pipeline {
                             error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
                         }
 
-                        withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
+                        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
                             def coverage = sh(
                                 script: """
                                     curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
