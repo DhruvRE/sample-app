@@ -69,24 +69,22 @@ pipeline {
                             error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
                         }
 
-                        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-                            def coverage = sh(
-                                script: """
-                                    curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
-                                    | jq -r '.component.measures[0].value'
-                                """,
-                                returnStdout: true
-                            ).trim().toFloat()
-
+                        // Extract coverage from quality gate conditions
+                        def coverageMetric = qg.conditions.find { it.metricKey == 'coverage' }
+                        if (coverageMetric) {
+                            def coverage = coverageMetric.value.toFloat()
                             echo "Coverage from SonarQube: ${coverage}%"
                             if (coverage < 80) {
                                 error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
                             }
+                        } else {
+                            echo "Coverage metric not found in Quality Gate."
                         }
                     }
                 }
             }
         }
+
 
         stage('Build Docker Image') {
             steps {
