@@ -40,7 +40,7 @@ pipeline {
             steps {
                 sh '''
                     . myenv/bin/activate
-                    pytest test/unit --maxfail=1 --disable-warnings --cov=app --cov-report xml:app/coverage.xml
+                    PYTHONPATH=$PYTHONPATH:$(pwd) pytest test/unit --maxfail=1 --disable-warnings --cov=app --cov-report xml:app/coverage.xml
                 '''
             }
         }
