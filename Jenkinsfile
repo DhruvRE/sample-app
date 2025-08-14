@@ -1,145 +1,131 @@
 pipeline {
-  agent any
+    agent any
 
-  parameters {
-    string(name: 'SOURCE_BRANCH', defaultValue: 'dbranch', description: 'Branch to build and merge into main')
-  }
-
-  environment {
-    DOCKER_IMAGE       = "dhruvre/sample-app"
-    DOCKER_CREDENTIALS = "dockerhub-credentials-id"
-    GIT_CREDENTIALS    = "github-token"
-    GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
-    SONAR_HOST_URL     = "http://sonarqube:9000"
-    SONAR_PROJECT_KEY  = "jenkins-sonar-app"
-    SONAR_TOKEN_ID     = "sonarqube-token"   // <-- your credential id
-  }
-
-  stages {
-    stage('Checkout Code') {
-      steps {
-        checkout([$class: 'GitSCM',
-                  branches: [[name: "*/${params.SOURCE_BRANCH}"]],
-                  userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
-      }
+    parameters {
+        string(name: 'SOURCE_BRANCH', defaultValue: 'dbranch', description: 'Branch to build and merge into main')
     }
 
-    stage('Run Tests') {
-      steps {
-        dir('app') {
-          sh '''
-            python3 -m venv venv
-            . venv/bin/activate
-            pip install --upgrade pip
-            pip install -r requirements.txt
-            pytest --maxfail=1 --disable-warnings -q --cov=. --cov-report xml:coverage.xml
-          '''
+    environment {
+        DOCKER_IMAGE       = "dhruvre/sample-app"
+        DOCKER_CREDENTIALS = "dockerhub-credentials-id"
+        GIT_CREDENTIALS    = "github-token"
+        GIT_REPO           = "https://github.com/DhruvRE/sample-app.git"
+        SONAR_HOST_URL     = "http://sonarqube:9000"
+        SONAR_PROJECT_KEY  = "jenkins-sonar-app"
+        SONAR_TOKEN        = "sonarqube-token"
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                checkout([$class: 'GitSCM',
+                          branches: [[name: "*/${params.SOURCE_BRANCH}"]],
+                          userRemoteConfigs: [[url: env.GIT_REPO, credentialsId: env.GIT_CREDENTIALS]]])
+            }
         }
-      }
-    }
 
-    stage('SonarQube Analysis') {
-      steps {
-        dir('app') {
-          // bind the Sonar token from Jenkins credentials into $SONAR_TOKEN
-          withCredentials([string(credentialsId: env.SONAR_TOKEN_ID, variable: 'SONAR_TOKEN')]) {
-            withSonarQubeEnv('MySonarQube') {
-              script {
-                // run the official SonarScanner CLI image so scanner binary exists
-                docker.image('sonarsource/sonar-scanner-cli:latest').inside('--user root') {
-                  sh '''
-                    echo "Running sonar-scanner in $(pwd)"
-                    echo "SONAR_HOST_URL=$SONAR_HOST_URL"
-                    sonar-scanner \
-                      -Dsonar.projectKey=$SONAR_PROJECT_KEY \
-                      -Dsonar.sources=. \
-                      -Dsonar.host.url=$SONAR_HOST_URL \
-                      -Dsonar.login=$SONAR_TOKEN \
-                      -Dsonar.python.coverage.reportPaths=coverage.xml -X
-                  '''
+        stage('Run Tests') {
+            steps {
+                dir('app') {
+                    sh '''
+                        python3 -m venv venv
+                        . venv/bin/activate
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+                        pytest --maxfail=1 --disable-warnings -q --cov=. --cov-report xml:coverage.xml
+                    '''
                 }
-              }
             }
-          }
         }
-      }
-    }
 
-    stage('Quality Gate Check') {
-      steps {
-        timeout(time: 5, unit: 'MINUTES') {
-          script {
-            def qg = waitForQualityGate()
-            echo "Quality Gate status: ${qg.status}"
-            if (qg.status != 'OK') { error "Pipeline aborted due to Quality Gate failure: ${qg.status}" }
-
-            // optional: fetch coverage metric and enforce >=80%
-            withCredentials([string(credentialsId: env.SONAR_TOKEN_ID, variable: 'SONAR_TOKEN')]) {
-              def json = sh(
-                script: "curl -s -u $SONAR_TOKEN: $SONAR_HOST_URL/api/measures/component?component=$SONAR_PROJECT_KEY&metricKeys=coverage",
-                returnStdout: true
-              ).trim()
-              echo "Sonar raw measures: ${json}"
-
-              def coverage = sh(
-                script: "python3 - <<'PY'\nimport sys, json\nj=json.load(sys.stdin)\nvals=j.get('component',{}).get('measures',[])\nprint(vals[0].get('value','') if vals else '')\nPY",
-                returnStdout: true,
-                stdin: json
-              ).trim()
-
-              echo "Coverage from SonarQube: ${coverage}%"
-              if (coverage != '' && coverage.toFloat() < 80) {
-                error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
-              }
+        stage('SonarQube Analysis') {
+            steps {
+                dir('app') {
+                    withSonarQubeEnv('MySonarQube') { // Name from Jenkins "Configure System"
+                        script {
+                            def scannerHome = tool 'SonarScanner'
+                            sh """
+                                ${scannerHome}/bin/sonar-scanner \
+                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                -Dsonar.sources=. \
+                                -Dsonar.python.coverage.reportPaths=coverage.xml
+                            """
+                        }
+                    }
+                }
             }
-          }
         }
-      }
-    }
 
-    stage('Build Docker Image') {
-      steps {
-        script {
-          docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
+        stage('Quality Gate Check') {
+            steps {
+                timeout(time: 2, unit: 'MINUTES') {
+                    script {
+                        def qg = waitForQualityGate()
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to Quality Gate failure: ${qg.status}"
+                        }
+
+                        // Get coverage from Sonar API securely
+                        withCredentials([string(credentialsId: 'sonar-token-id', variable: 'SONAR_TOKEN')]) {
+                            def coverage = sh(
+                                script: """curl -s -u ${SONAR_TOKEN}: ${SONAR_HOST_URL}/api/measures/component?component=${SONAR_PROJECT_KEY}&metricKeys=coverage \
+                                          | jq -r '.component.measures[0].value'""",
+                                returnStdout: true
+                            ).trim().toFloat()
+
+                            echo "Coverage from SonarQube: ${coverage}%"
+                            if (coverage < 80) {
+                                error "Pipeline failed: Coverage is ${coverage}%, required >= 80%"
+                            }
+                        }
+                    }
+                }
+            }
         }
-      }
-    }
 
-    stage('Push Docker Image') {
-      steps {
-        script {
-          docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
-            docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
-          }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}", "app")
+                }
+            }
         }
-      }
-    }
 
-    stage('Merge branch into main') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
-                                          usernameVariable: 'GIT_USER',
-                                          passwordVariable: 'GIT_TOKEN')]) {
-          script {
-            sh """
-              git config user.email "jenkins@local"
-              git config user.name "Jenkins CI"
-
-              git fetch origin ${SOURCE_BRANCH}:${SOURCE_BRANCH}
-              git checkout main || git checkout -b main origin/main
-              git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
-
-              sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
-              git add manifests/deployment.yaml
-              git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
-
-              git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
-              git push origin main
-              git remote set-url origin https://github.com/DhruvRE/sample-app.git
-            """
-          }
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS) {
+                        docker.image("${DOCKER_IMAGE}:${env.BUILD_NUMBER}").push()
+                    }
+                }
+            }             
         }
-      }
+
+        stage('Merge branch into main') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: env.GIT_CREDENTIALS,
+                                                  usernameVariable: 'GIT_USER',
+                                                  passwordVariable: 'GIT_TOKEN')]) {
+                    script {
+                        sh """
+                        git config user.email "jenkins@local"
+                        git config user.name "Jenkins CI"
+
+                        git fetch origin ${SOURCE_BRANCH}:${SOURCE_BRANCH}
+                        git checkout main || git checkout -b main origin/main
+                        git merge --no-ff ${SOURCE_BRANCH} -m "Merge ${SOURCE_BRANCH} into main [skip ci]"
+
+                        sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' manifests/deployment.yaml
+                        git add manifests/deployment.yaml
+                        git diff --cached --quiet || git commit -m "Update image tag to ${BUILD_NUMBER} [skip ci]"
+
+                        git remote set-url origin https://${GIT_USER}:${GIT_TOKEN}@github.com/DhruvRE/sample-app.git
+                        git push origin main
+                        git remote set-url origin https://github.com/DhruvRE/sample-app.git
+                        """
+                    }
+                }
+            }
+        }
     }
-  }
 }
