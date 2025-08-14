@@ -41,15 +41,19 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 dir('app') {
-                    withSonarQubeEnv('MySonarQube') { // Name from Jenkins "Configure System"
-                        script {
-                            def scannerHome = tool 'SonarScanner'
-                            sh """
-                                ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                -Dsonar.sources=. \
-                                -Dsonar.python.coverage.reportPaths=coverage.xml
-                            """
+                    withSonarQubeEnv('MySonarQube') { // Uses Jenkins "Configure System" Sonar server
+                        withCredentials([string(credentialsId: env.SONAR_TOKEN, variable: 'SONAR_TOKEN_VALUE')]) {
+                            script {
+                                def scannerHome = tool 'SonarScanner'
+                                sh """
+                                    ${scannerHome}/bin/sonar-scanner \
+                                    -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                    -Dsonar.sources=. \
+                                    -Dsonar.host.url=${SONAR_HOST_URL} \
+                                    -Dsonar.token=${SONAR_TOKEN_VALUE} \
+                                    -Dsonar.python.coverage.reportPaths=coverage.xml
+                                """
+                            }
                         }
                     }
                 }
