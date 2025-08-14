@@ -1,5 +1,5 @@
 import json
-from app.app import app
+from app import app
 
 def test_health_check_pass():
     tester = app.test_client()
