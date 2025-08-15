@@ -52,7 +52,6 @@ pipeline {
                         script {
                             def scannerHome = tool 'SonarScanner'
                             sh """
-                                set -e
                                 ${scannerHome}/bin/sonar-scanner \
                                     -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                     -Dsonar.sources=. \
